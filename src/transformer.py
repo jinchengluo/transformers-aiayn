@@ -73,22 +73,42 @@ class Embedding(nn.Module):
     
 
 class PositionalEncoding(nn.Module):
-    def __init__(self, model_dimension, sequence_length):
+    def __init__(self, model_dimension, max_sequence_length=5000):
         super().__init__()
-        self.sequence_length = sequence_length
+        self.sequence_length = max_sequence_length
         self.model_dimension = model_dimension
         
-        positional_encoding = torch.zeros(sequence_length, model_dimension)
+        positional_encoding = torch.zeros(max_sequence_length, model_dimension)
 
-        positions = torch.arange(0, sequence_length, 1, dtype=float)
+        positions = torch.arange(0, max_sequence_length, 1, dtype=float)
         positions = torch.unsqueeze(positions, 1) 
         denominator = torch.exp(torch.arange(0, model_dimension, 2, dtype=float) * -math.log(10000.) / model_dimension)
 
         positional_encoding[:,0::2] = torch.sin(positions * denominator)
-        positional_encoding[:,1::2] = torch.sin(positions * denominator)
+        positional_encoding[:,1::2] = torch.cos(positions * denominator)
 
         self.register_buffer("positional_encoding", positional_encoding)       
 
     def forward(self, x_embedded):
         return x_embedded + self.positional_encoding[:x_embedded.shape[1]]
-    
+
+
+class LayerNormalization(nn.Module):
+    def __init__(self):
+        super().__init__
+
+
+class EncoderLayer(nn.module):
+    def __init__(self, model_dimension, multihead_attention, feedforward_network):
+        super().__init__()
+        self.model_dimension = model_dimension
+        self.multihead_attention = multihead_attention
+        self.feedforward_network = feedforward_network
+        self.layernorm = nn.LayerNorm(model_dimension)
+
+    def forward(self, input):
+        attention_ouput, _ = self.multihead_attention(input, input, input)
+        sublayer_output1 = self.layernorm(input + attention_ouput)
+        ffnetwork_output = self.feedforward_network(sublayer_output1)
+        sublayer_output2 = self.layernorm(sublayer_output1 + ffnetwork_output)
+        return sublayer_output2
