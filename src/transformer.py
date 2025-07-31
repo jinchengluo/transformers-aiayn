@@ -101,9 +101,55 @@ class EncoderLayer(nn.Module):
         self.feedforward_network = feedforward_network
         self.layernorm = nn.LayerNorm(model_dimension)
 
-    def forward(self, input):
-        attention_ouput, _ = self.multihead_attention(input, input, input)
-        sublayer_output1 = self.layernorm(input + attention_ouput)
+    def forward(self, input_embedded):
+        attention_ouput, _ = self.multihead_attention(input_embedded, input_embedded, input_embedded)
+        sublayer_output1 = self.layernorm(input_embedded + attention_ouput)
         ffnetwork_output = self.feedforward_network(sublayer_output1)
         sublayer_output2 = self.layernorm(sublayer_output1 + ffnetwork_output)
         return sublayer_output2
+    
+class Encoder(nn.Module):
+    def __init__(self, model_dimension, number_of_layers, encoder_layer):
+        super().__init__()
+        self.model_dimension = model_dimension
+        self.number_of_layers = number_of_layers
+        self.layers = nn.ModuleList([encoder_layer for _ in range(number_of_layers)])
+
+    def forward(self, input_embedded):
+        input_encode = input_embedded
+        for layer in self.layers:
+            input_encode = layer(input_encode)
+        return input_encode
+    
+
+class DecoderLayer(nn.module):
+    def __init__(self, model_dimension, masked_multihead_attention, multihead_attention, feedforward_network):
+        super().__init__()
+        self.model_dimension = model_dimension
+        self.masked_multihead_attention = masked_multihead_attention
+        self.multihead_attention = multihead_attention
+        self.feedforward_network = feedforward_network
+        self.layernorm = nn.LayerNorm(model_dimension)
+
+    def forward(self, input_encode, output_embedded, mask):
+        masked_attention_output, _ = self.masked_multihead_attention(queries=output_embedded, keys=output_embedded, values=output_embedded, mask=mask)
+        sublayer_output1 = self.layernorm(output_embedded + masked_attention_output)
+        attention_ouput, _ = self.multihead_attention(queries=sublayer_output1, keys=input_encode, values=input_encode)
+        sublayer_output2 = self.layernorm(sublayer_output1 + attention_ouput)
+        ffnetwork_ouput = self.feedforward_network(sublayer_output2)
+        sublayer_output3 = self.layernorm(ffnetwork_ouput)
+        return sublayer_output3
+    
+
+class Decoder(nn.Module):
+    def __init__(self, model_dimension, number_of_layers, decoder_layer):
+        super().__init__()
+        self.model_dimension = model_dimension
+        self.number_of_layers = number_of_layers
+        self.layers = nn.ModuleList([decoder_layer for _ in range(number_of_layers)])
+
+    def forward(self, input_encode, output_embedded, mask):
+        output_encode = output_embedded
+        for layer in self.layers:
+            output_encode = layer(input_encode, output_encode, mask)
+        return output_encode
