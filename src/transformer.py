@@ -93,12 +93,7 @@ class PositionalEncoding(nn.Module):
         return x_embedded + self.positional_encoding[:x_embedded.shape[1]]
 
 
-class LayerNormalization(nn.Module):
-    def __init__(self):
-        super().__init__
-
-
-class EncoderLayer(nn.module):
+class EncoderLayer(nn.Module):
     def __init__(self, model_dimension, multihead_attention, feedforward_network):
         super().__init__()
         self.model_dimension = model_dimension
