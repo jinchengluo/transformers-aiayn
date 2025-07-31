@@ -41,7 +41,7 @@ class MultiHeadAttention(nn.Module):
         projected_values = projected_values.view(projected_values.shape[0], projected_values.shape[1], self.number_of_heads, self.value_dimension).transpose(1, 2)
     
         scaled_dot_product = ScaledDotProductAttention(self.key_dimension, self.value_dimension)
-        attention, _ = scaled_dot_product(queries, keys, values, mask)
+        attention, _ = scaled_dot_product(projected_queries, projected_keys, projected_values, mask)
         attention = attention.transpose(1, 2).contiguous()
         attention = attention.view(attention.shape[0], -1, self.model_dimension)
 
@@ -99,13 +99,14 @@ class EncoderLayer(nn.Module):
         self.model_dimension = model_dimension
         self.multihead_attention = multihead_attention
         self.feedforward_network = feedforward_network
-        self.layernorm = nn.LayerNorm(model_dimension)
+        self.layernorm1 = nn.LayerNorm(model_dimension)
+        self.layernorm2 = nn.LayerNorm(model_dimension)
 
     def forward(self, input_embedded):
         attention_ouput, _ = self.multihead_attention(input_embedded, input_embedded, input_embedded)
-        sublayer_output1 = self.layernorm(input_embedded + attention_ouput)
+        sublayer_output1 = self.layernorm1(input_embedded + attention_ouput)
         ffnetwork_output = self.feedforward_network(sublayer_output1)
-        sublayer_output2 = self.layernorm(sublayer_output1 + ffnetwork_output)
+        sublayer_output2 = self.layernorm2(sublayer_output1 + ffnetwork_output)
         return sublayer_output2
     
 class Encoder(nn.Module):
@@ -122,22 +123,24 @@ class Encoder(nn.Module):
         return input_encode
     
 
-class DecoderLayer(nn.module):
+class DecoderLayer(nn.Module):
     def __init__(self, model_dimension, masked_multihead_attention, multihead_attention, feedforward_network):
         super().__init__()
         self.model_dimension = model_dimension
         self.masked_multihead_attention = masked_multihead_attention
         self.multihead_attention = multihead_attention
         self.feedforward_network = feedforward_network
-        self.layernorm = nn.LayerNorm(model_dimension)
+        self.layernorm1 = nn.LayerNorm(model_dimension)
+        self.layernorm2 = nn.LayerNorm(model_dimension)
+        self.layernorm3 = nn.LayerNorm(model_dimension)
 
     def forward(self, input_encode, output_embedded, mask):
         masked_attention_output, _ = self.masked_multihead_attention(queries=output_embedded, keys=output_embedded, values=output_embedded, mask=mask)
-        sublayer_output1 = self.layernorm(output_embedded + masked_attention_output)
+        sublayer_output1 = self.layernorm1(output_embedded + masked_attention_output)
         attention_ouput, _ = self.multihead_attention(queries=sublayer_output1, keys=input_encode, values=input_encode)
-        sublayer_output2 = self.layernorm(sublayer_output1 + attention_ouput)
+        sublayer_output2 = self.layernorm2(sublayer_output1 + attention_ouput)
         ffnetwork_ouput = self.feedforward_network(sublayer_output2)
-        sublayer_output3 = self.layernorm(ffnetwork_ouput)
+        sublayer_output3 = self.layernorm3(sublayer_output2 + ffnetwork_ouput)
         return sublayer_output3
     
 
