@@ -1,3 +1,4 @@
+import copy
 import math
 import torch
 import torch.nn as nn
@@ -13,6 +14,8 @@ class ScaledDotProductAttention(nn.Module):
         dot_product = torch.matmul(queries, keys.transpose(-2, -1))
         dot_product /= math.sqrt(self.key_dimension)
         if mask is not None:
+            if mask.dim() == 4 and mask.size(-2) == 1:
+                mask = mask.expand(-1, -1, dot_product.size(-2), -1)
             dot_product.masked_fill_(mask == 0, float("-inf"))
         weights = dot_product.softmax(dim=-1)
         return torch.matmul(weights, values), weights
@@ -56,9 +59,9 @@ class PositionwiseFeedForwardNetwork(nn.Module):
         self.relu = nn.ReLU()
 
     def forward(self, x):
-        output = self.linear1(x)
-        output = self.relu(output)
-        return self.linear2(output)
+        output_ids = self.linear1(x)
+        output_ids = self.relu(output_ids)
+        return self.linear2(output_ids)
 
 
 class Embedding(nn.Module):
@@ -114,7 +117,7 @@ class Encoder(nn.Module):
         super().__init__()
         self.model_dimension = model_dimension
         self.number_of_layers = number_of_layers
-        self.layers = nn.ModuleList([encoder_layer for _ in range(number_of_layers)])
+        self.layers = nn.ModuleList([copy.deepcopy(encoder_layer) for _ in range(number_of_layers)])
 
     def forward(self, input_embedded):
         input_encode = input_embedded
@@ -149,7 +152,7 @@ class Decoder(nn.Module):
         super().__init__()
         self.model_dimension = model_dimension
         self.number_of_layers = number_of_layers
-        self.layers = nn.ModuleList([decoder_layer for _ in range(number_of_layers)])
+        self.layers = nn.ModuleList([copy.deepcopy(decoder_layer) for _ in range(number_of_layers)])
 
     def forward(self, input_encode, output_embedded, mask):
         output_encode = output_embedded
@@ -159,19 +162,19 @@ class Decoder(nn.Module):
 
 
 class Transformer(nn.Module):
-    def __init__(self, model_dimension, inner_layer_dimension, number_of_layers, number_of_heads, input_vocabulary_size, output_vocabulary_size, mask):
+    def __init__(self, model_dimension, inner_layer_dimension, number_of_layers, number_of_heads, input_vocabulary_size, output_vocabulary_size):
+        super().__init__()
         self.model_dimension = model_dimension
         self.number_of_layers = number_of_layers
         self.number_of_heads = number_of_heads
         self.input_vocabulary_size = input_vocabulary_size
         self.output_vocabulary_size = output_vocabulary_size
-        self.mask = mask
-        
+
         self.input_embedding = Embedding(input_vocabulary_size, model_dimension)
         self.output_embedding = Embedding(output_vocabulary_size, model_dimension)
 
         self.input_pos_encoding = PositionalEncoding(model_dimension)
-        self.ouput_pos_encoding = PositionalEncoding(model_dimension)
+        self.output_pos_encoding = PositionalEncoding(model_dimension)
 
         masked_multihead_attention = MultiHeadAttention(model_dimension, number_of_heads)
         multihead_attention = MultiHeadAttention(model_dimension, number_of_heads)
@@ -184,16 +187,20 @@ class Transformer(nn.Module):
 
         self.linear_projection = nn.Linear(model_dimension, output_vocabulary_size)
 
-    def forward(self, input, output):
-        input_embedded = self.input_embedding(input)
+    def forward(self, input_ids, output_ids, mask=None):
+        input_embedded = self.input_embedding(input_ids)
         input_pos_encoded = self.input_pos_encoding(input_embedded)
         input_encoded = self.encoder(input_pos_encoded)
 
-        output_embedded = self.output_embedding(output)
-        output_pos_encoded = self.ouput_pos_encoding(output_embedded)
-        output_decoded = self.decoder(input_encoded, output_pos_encoded, self.mask)
+        output_embedded = self.output_embedding(output_ids)
+        output_pos_encoded = self.output_pos_encoding(output_embedded)
+        output_decoded = self.decoder(input_encoded, output_pos_encoded, mask)
 
         output_decoded = self.linear_projection(output_decoded)
         output_decoded = output_decoded.softmax(dim=-1)
 
         return output_decoded
+
+    def generate_causal_mask(self, seq_len):
+        mask = torch.tril(torch.ones(seq_len, seq_len))
+        return mask.unsqueeze(0).unsqueeze(0)
