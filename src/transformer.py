@@ -156,3 +156,44 @@ class Decoder(nn.Module):
         for layer in self.layers:
             output_encode = layer(input_encode, output_encode, mask)
         return output_encode
+
+
+class Transformer(nn.Module):
+    def __init__(self, model_dimension, inner_layer_dimension, number_of_layers, number_of_heads, input_vocabulary_size, output_vocabulary_size, mask):
+        self.model_dimension = model_dimension
+        self.number_of_layers = number_of_layers
+        self.number_of_heads = number_of_heads
+        self.input_vocabulary_size = input_vocabulary_size
+        self.output_vocabulary_size = output_vocabulary_size
+        self.mask = mask
+        
+        self.input_embedding = Embedding(input_vocabulary_size, model_dimension)
+        self.output_embedding = Embedding(output_vocabulary_size, model_dimension)
+
+        self.input_pos_encoding = PositionalEncoding(model_dimension)
+        self.ouput_pos_encoding = PositionalEncoding(model_dimension)
+
+        masked_multihead_attention = MultiHeadAttention(model_dimension, number_of_heads)
+        multihead_attention = MultiHeadAttention(model_dimension, number_of_heads)
+        feedforward_network = PositionwiseFeedForwardNetwork(model_dimension, inner_layer_dimension)
+        encoder_layer = EncoderLayer(model_dimension, multihead_attention, feedforward_network)
+        decoder_layer = DecoderLayer(model_dimension, masked_multihead_attention, multihead_attention, feedforward_network)
+
+        self.encoder = Encoder(model_dimension, number_of_layers, encoder_layer)
+        self.decoder = Decoder(model_dimension, number_of_layers, decoder_layer)
+
+        self.linear_projection = nn.Linear(model_dimension, output_vocabulary_size)
+
+    def forward(self, input, output):
+        input_embedded = self.input_embedding(input)
+        input_pos_encoded = self.input_pos_encoding(input_embedded)
+        input_encoded = self.encoder(input_pos_encoded)
+
+        output_embedded = self.output_embedding(output)
+        output_pos_encoded = self.ouput_pos_encoding(output_embedded)
+        output_decoded = self.decoder(input_encoded, output_pos_encoded, self.mask)
+
+        output_decoded = self.linear_projection(output_decoded)
+        output_decoded = output_decoded.softmax(dim=-1)
+
+        return output_decoded
