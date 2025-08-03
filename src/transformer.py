@@ -106,7 +106,7 @@ class EncoderLayer(nn.Module):
         self.layernorm2 = nn.LayerNorm(model_dimension)
 
     def forward(self, input_embedded):
-        attention_ouput, _ = self.multihead_attention(input_embedded, input_embedded, input_embedded)
+        attention_ouput = self.multihead_attention(input_embedded, input_embedded, input_embedded)
         sublayer_output1 = self.layernorm1(input_embedded + attention_ouput)
         ffnetwork_output = self.feedforward_network(sublayer_output1)
         sublayer_output2 = self.layernorm2(sublayer_output1 + ffnetwork_output)
@@ -138,9 +138,9 @@ class DecoderLayer(nn.Module):
         self.layernorm3 = nn.LayerNorm(model_dimension)
 
     def forward(self, input_encode, output_embedded, mask):
-        masked_attention_output, _ = self.masked_multihead_attention(queries=output_embedded, keys=output_embedded, values=output_embedded, mask=mask)
+        masked_attention_output = self.masked_multihead_attention(queries=output_embedded, keys=output_embedded, values=output_embedded, mask=mask)
         sublayer_output1 = self.layernorm1(output_embedded + masked_attention_output)
-        attention_ouput, _ = self.multihead_attention(queries=sublayer_output1, keys=input_encode, values=input_encode)
+        attention_ouput = self.multihead_attention(queries=sublayer_output1, keys=input_encode, values=input_encode)
         sublayer_output2 = self.layernorm2(sublayer_output1 + attention_ouput)
         ffnetwork_ouput = self.feedforward_network(sublayer_output2)
         sublayer_output3 = self.layernorm3(sublayer_output2 + ffnetwork_ouput)
@@ -187,7 +187,7 @@ class Transformer(nn.Module):
 
         self.linear_projection = nn.Linear(model_dimension, output_vocabulary_size)
 
-    def forward(self, input_ids, output_ids, mask=None):
+    def forward(self, input_ids, output_ids, mask):
         input_embedded = self.input_embedding(input_ids)
         input_pos_encoded = self.input_pos_encoding(input_embedded)
         input_encoded = self.encoder(input_pos_encoded)
@@ -201,6 +201,12 @@ class Transformer(nn.Module):
 
         return output_decoded
 
-    def generate_causal_mask(self, seq_len):
-        mask = torch.tril(torch.ones(seq_len, seq_len))
-        return mask.unsqueeze(0).unsqueeze(0)
+
+def create_causal_mask(seq_len):
+    """
+    Crée un masque causal (triangulaire inférieur) pour l'auto-attention masquée
+    Empêche de voir les tokens futurs
+    Retourne: (seq_len, seq_len) - 1 pour positions autorisées, 0 pour interdites
+    """
+    mask = torch.tril(torch.ones(seq_len, seq_len))
+    return mask
