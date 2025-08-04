@@ -50,9 +50,12 @@ class ScaledDotProductAttention(nn.Module):
     def forward(self, queries, keys, values, mask=None):
         dot_product = torch.matmul(queries, keys.transpose(-2, -1))
         dot_product /= math.sqrt(self.key_dimension)
+        
         if mask is not None:
             dot_product.masked_fill_(mask == 0, float("-inf"))
+        
         weights = dot_product.softmax(dim=-1)
+        
         return torch.matmul(weights, values), weights
     
 
@@ -63,10 +66,13 @@ class MultiHeadAttention(nn.Module):
         self.number_of_heads = number_of_heads
         self.key_dimension = model_dimension // number_of_heads
         self.value_dimension = model_dimension // number_of_heads
+
         self.linear_queries = nn.Linear(model_dimension, model_dimension) # W_Q
         self.linear_keys = nn.Linear(model_dimension, model_dimension) # W_K
         self.linear_values = nn.Linear(model_dimension, model_dimension) # W_V
+
         self.linear_output = nn.Linear(model_dimension, model_dimension) # w_0
+        
         self.attention_weigths = None
         self.save_weigths = save_weigths
 
@@ -96,6 +102,7 @@ class PositionwiseFeedForwardNetwork(nn.Module):
         super().__init__()
         self.modul_dimension = model_dimension
         self.inner_layer_dimension = inner_layer_dimension
+        
         self.linear1 = nn.Linear(model_dimension, inner_layer_dimension) # W1 and b1
         self.linear2 = nn.Linear(inner_layer_dimension, model_dimension) # W2 and b2
         self.relu = nn.ReLU()
@@ -110,6 +117,7 @@ class EncoderLayer(nn.Module):
     def __init__(self, model_dimension, multihead_attention, feedforward_network):
         super().__init__()
         self.model_dimension = model_dimension
+        
         self.multihead_attention = multihead_attention
         self.feedforward_network = feedforward_network
         self.layernorm1 = nn.LayerNorm(model_dimension)
@@ -118,22 +126,34 @@ class EncoderLayer(nn.Module):
     def forward(self, input_embedded):
         attention_ouput = self.multihead_attention(input_embedded, input_embedded, input_embedded)
         sublayer_output1 = self.layernorm1(input_embedded + attention_ouput)
+
         ffnetwork_output = self.feedforward_network(sublayer_output1)
         sublayer_output2 = self.layernorm2(sublayer_output1 + ffnetwork_output)
+        
         return sublayer_output2
     
 
 class Encoder(nn.Module):
-    def __init__(self, model_dimension, number_of_layers, encoder_layer):
+    def __init__(self, model_dimension, number_of_layers, number_of_heads, inner_layer_dimension):
         super().__init__()
         self.model_dimension = model_dimension
         self.number_of_layers = number_of_layers
-        self.layers = nn.ModuleList([copy.deepcopy(encoder_layer) for _ in range(number_of_layers)])
+        
+        self.layers = nn.ModuleList([
+            EncoderLayer(
+                model_dimension,
+                MultiHeadAttention(model_dimension, number_of_heads),
+                PositionwiseFeedForwardNetwork(model_dimension, inner_layer_dimension)
+            )
+            for _ in range(number_of_layers)
+        ])
 
     def forward(self, input_embedded):
         input_encode = input_embedded
+
         for layer in self.layers:
             input_encode = layer(input_encode)
+        
         return input_encode
     
 
@@ -141,6 +161,7 @@ class DecoderLayer(nn.Module):
     def __init__(self, model_dimension, masked_multihead_attention, multihead_attention, feedforward_network):
         super().__init__()
         self.model_dimension = model_dimension
+
         self.masked_multihead_attention = masked_multihead_attention
         self.multihead_attention = multihead_attention
         self.feedforward_network = feedforward_network
@@ -151,24 +172,36 @@ class DecoderLayer(nn.Module):
     def forward(self, input_encode, output_embedded, mask=None):
         masked_attention_output = self.masked_multihead_attention(queries=output_embedded, keys=output_embedded, values=output_embedded, mask=mask)
         sublayer_output1 = self.layernorm1(output_embedded + masked_attention_output)
+        
         attention_ouput = self.multihead_attention(queries=sublayer_output1, keys=input_encode, values=input_encode)
         sublayer_output2 = self.layernorm2(sublayer_output1 + attention_ouput)
+        
         ffnetwork_ouput = self.feedforward_network(sublayer_output2)
         sublayer_output3 = self.layernorm3(sublayer_output2 + ffnetwork_ouput)
+        
         return sublayer_output3
     
 
 class Decoder(nn.Module):
-    def __init__(self, model_dimension, number_of_layers, decoder_layer):
+    def __init__(self, model_dimension, number_of_layers, number_of_heads, inner_layer_dimension):
         super().__init__()
         self.model_dimension = model_dimension
         self.number_of_layers = number_of_layers
-        self.layers = nn.ModuleList([copy.deepcopy(decoder_layer) for _ in range(number_of_layers)])
-
+        self.layers = nn.ModuleList([
+            DecoderLayer(
+                model_dimension,
+                MultiHeadAttention(model_dimension, number_of_heads),  # masked self-attention
+                MultiHeadAttention(model_dimension, number_of_heads),  # encoder-decoder attention
+                PositionwiseFeedForwardNetwork(model_dimension, inner_layer_dimension)
+            )
+            for _ in range(number_of_layers)
+        ])
     def forward(self, input_encode, output_embedded, mask):
         output_encode = output_embedded
+
         for layer in self.layers:
             output_encode = layer(input_encode, output_encode, mask)
+        
         return output_encode
 
 
@@ -187,14 +220,8 @@ class Transformer(nn.Module):
         self.input_pos_encoding = PositionalEncoding(model_dimension)
         self.output_pos_encoding = PositionalEncoding(model_dimension)
 
-        masked_multihead_attention = MultiHeadAttention(model_dimension, number_of_heads)
-        multihead_attention = MultiHeadAttention(model_dimension, number_of_heads)
-        feedforward_network = PositionwiseFeedForwardNetwork(model_dimension, inner_layer_dimension)
-        encoder_layer = EncoderLayer(model_dimension, multihead_attention, feedforward_network)
-        decoder_layer = DecoderLayer(model_dimension, masked_multihead_attention, multihead_attention, feedforward_network)
-
-        self.encoder = Encoder(model_dimension, number_of_layers, encoder_layer)
-        self.decoder = Decoder(model_dimension, number_of_layers, decoder_layer)
+        self.encoder = Encoder(model_dimension, number_of_layers, number_of_heads, inner_layer_dimension)
+        self.decoder = Decoder(model_dimension, number_of_layers, number_of_heads, inner_layer_dimension)
 
         self.linear_projection = nn.Linear(model_dimension, output_vocabulary_size)
 

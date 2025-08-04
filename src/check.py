@@ -20,10 +20,10 @@ def main():
     src_seq_len = 4
     tgt_seq_len = 4
     d_model = 8
-    src_vocab_size = 4
-    tgt_vocab_size = 4
-    h = 4
-    d_ff = 8
+    src_vocab_size = 8
+    tgt_vocab_size = 8
+    h = 8
+    d_ff = 2048
     N = 6 
     #torch.manual_seed(42)
 
@@ -116,7 +116,7 @@ def main():
 
     # Test Encoder
     print("Encoder ==================================================\n")
-    encoder = Encoder(d_model, N, encoder_layer)
+    encoder = Encoder(d_model, N, h, d_ff)
     
     input_encoded = encoder(input_pos_encoded)
     
@@ -142,7 +142,7 @@ def main():
 
     # Test Decoder
     print("Decoder ==================================================\n")
-    decoder = Decoder(d_model, N, decoder_layer)
+    decoder = Decoder(d_model, N, h, d_ff)
 
     output_decoded = decoder(input_encoded, output_pos_encoded, mask)
     
