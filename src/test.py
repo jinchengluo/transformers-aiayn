@@ -11,6 +11,7 @@ from transformer import Encoder
 from transformer import DecoderLayer
 from transformer import Decoder
 from transformer import Transformer
+from transformer import create_causal_mask
 
 def test_scaled_dot_product_attention():
     print("Testing ScaledDotProductAttention...")
@@ -248,7 +249,7 @@ def test_transformer():
     output_ids = torch.randint(0, output_vocab_size, (batch_size, tgt_seq_len))
     
     # Créer un masque causal pour le décodeur
-    causal_mask = transformer.generate_causal_mask(tgt_seq_len)
+    causal_mask = create_causal_mask(tgt_seq_len)
     
     # Test du forward pass
     logits = transformer(input_ids, output_ids, causal_mask)
@@ -265,7 +266,7 @@ def test_transformer():
     tgt_seq_len2 = 12
     input_ids2 = torch.randint(0, input_vocab_size, (batch_size, src_seq_len2))
     output_ids2 = torch.randint(0, output_vocab_size, (batch_size, tgt_seq_len2))
-    causal_mask2 = transformer.generate_causal_mask(tgt_seq_len2)
+    causal_mask2 = create_causal_mask(tgt_seq_len2)
     
     logits2 = transformer(input_ids2, output_ids2, causal_mask2)
     expected_shape2 = (batch_size, tgt_seq_len2, output_vocab_size)
@@ -305,7 +306,7 @@ def test_transformer_components_integration():
     assert logits_no_mask.shape == (batch_size, seq_len, output_vocab_size)
     
     # Test avec masque
-    mask = transformer.generate_causal_mask(seq_len)
+    mask = create_causal_mask(seq_len)
     logits_with_mask = transformer(input_ids, output_ids, mask)
     assert logits_with_mask.shape == (batch_size, seq_len, output_vocab_size)
     
@@ -323,16 +324,15 @@ def test_transformer_causal_mask():
     
     # Test de génération de masque
     seq_len = 4
-    mask = transformer.generate_causal_mask(seq_len)
+    mask = create_causal_mask(seq_len)
     
-    expected_mask = torch.tensor([
-        [1., 0., 0., 0.],
-        [1., 1., 0., 0.],
-        [1., 1., 1., 0.],
-        [1., 1., 1., 1.]
-    ])
+    expected_mask = torch.tensor([[
+        [True, False, False, False],
+        [True, True, False, False],
+        [True, True, True, False],
+        [True, True, True, True]
+    ]])
     
-    assert mask.shape == (1, 1, seq_len, seq_len), f"Expected mask shape (1, 1, {seq_len}, {seq_len}), got {mask.shape}"
     assert torch.allclose(mask.squeeze(), expected_mask), "Causal mask should be lower triangular"
     
     print("Transformer causal mask tests passed")

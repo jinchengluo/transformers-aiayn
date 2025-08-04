@@ -4,65 +4,10 @@ import torch
 import torch.nn as nn
 
 
-class ScaledDotProductAttention(nn.Module):
-    def __init__(self, key_dimension, value_dimension):
-        super().__init__()
-        self.key_dimension = key_dimension
-        self.value_dimension = value_dimension
-
-    def forward(self, queries, keys, values, mask=None):
-        dot_product = torch.matmul(queries, keys.transpose(-2, -1))
-        dot_product /= math.sqrt(self.key_dimension)
-        if mask is not None:
-            if mask.dim() == 4 and mask.size(-2) == 1:
-                mask = mask.expand(-1, -1, dot_product.size(-2), -1)
-            dot_product.masked_fill_(mask == 0, float("-inf"))
-        weights = dot_product.softmax(dim=-1)
-        return torch.matmul(weights, values), weights
-    
-
-class MultiHeadAttention(nn.Module):
-    def __init__(self, model_dimension, number_of_heads):
-        super().__init__()
-        self.model_dimension = model_dimension
-        self.number_of_heads = number_of_heads
-        self.key_dimension = model_dimension // number_of_heads
-        self.value_dimension = model_dimension // number_of_heads
-        self.linear_queries = nn.Linear(model_dimension, model_dimension) # W_Q
-        self.linear_keys = nn.Linear(model_dimension, model_dimension) # W_K
-        self.linear_values = nn.Linear(model_dimension, model_dimension) # W_V
-        self.linear_output = nn.Linear(model_dimension, model_dimension) # w_0
-
-    def forward(self, queries, keys, values, mask=None):         
-        projected_queries = self.linear_queries(queries) # Q * W_Q
-        projected_queries = projected_queries.view(projected_queries.shape[0], projected_queries.shape[1], self.number_of_heads, self.key_dimension).transpose(1, 2)
-
-        projected_keys = self.linear_keys(keys) # K * W_K
-        projected_keys = projected_keys.view(projected_keys.shape[0], projected_keys.shape[1], self.number_of_heads, self.key_dimension).transpose(1, 2)
-
-        projected_values = self.linear_values(values) # V * W_V
-        projected_values = projected_values.view(projected_values.shape[0], projected_values.shape[1], self.number_of_heads, self.value_dimension).transpose(1, 2)
-    
-        scaled_dot_product = ScaledDotProductAttention(self.key_dimension, self.value_dimension)
-        attention, _ = scaled_dot_product(projected_queries, projected_keys, projected_values, mask)
-        attention = attention.transpose(1, 2).contiguous()
-        attention = attention.view(attention.shape[0], -1, self.model_dimension)
-
-        return self.linear_output(attention)
-
-
-class PositionwiseFeedForwardNetwork(nn.Module):
-    def __init__(self, model_dimension, inner_layer_dimension):
-        super().__init__()
-        self.linear1 = nn.Linear(model_dimension, inner_layer_dimension) # W1 and b1
-        self.linear2 = nn.Linear(inner_layer_dimension, model_dimension) # W2 and b2
-        self.relu = nn.ReLU()
-
-    def forward(self, x):
-        output_ids = self.linear1(x)
-        output_ids = self.relu(output_ids)
-        return self.linear2(output_ids)
-
+def create_causal_mask(sequence_length):
+    """Create causal (look-ahead) mask for decoder self-attention"""
+    mask = torch.triu(torch.ones(1, sequence_length, sequence_length), diagonal=1)
+    return mask == 0
 
 class Embedding(nn.Module):
     def __init__(self, vocabulary_size, model_dimension):
@@ -96,6 +41,71 @@ class PositionalEncoding(nn.Module):
         return x_embedded + self.positional_encoding[:x_embedded.shape[1]]
 
 
+class ScaledDotProductAttention(nn.Module):
+    def __init__(self, key_dimension, value_dimension):
+        super().__init__()
+        self.key_dimension = key_dimension
+        self.value_dimension = value_dimension
+
+    def forward(self, queries, keys, values, mask=None):
+        dot_product = torch.matmul(queries, keys.transpose(-2, -1))
+        dot_product /= math.sqrt(self.key_dimension)
+        if mask is not None:
+            dot_product.masked_fill_(mask == 0, float("-inf"))
+        weights = dot_product.softmax(dim=-1)
+        return torch.matmul(weights, values), weights
+    
+
+class MultiHeadAttention(nn.Module):
+    def __init__(self, model_dimension, number_of_heads, save_weigths=False):
+        super().__init__()
+        self.model_dimension = model_dimension
+        self.number_of_heads = number_of_heads
+        self.key_dimension = model_dimension // number_of_heads
+        self.value_dimension = model_dimension // number_of_heads
+        self.linear_queries = nn.Linear(model_dimension, model_dimension) # W_Q
+        self.linear_keys = nn.Linear(model_dimension, model_dimension) # W_K
+        self.linear_values = nn.Linear(model_dimension, model_dimension) # W_V
+        self.linear_output = nn.Linear(model_dimension, model_dimension) # w_0
+        self.attention_weigths = None
+        self.save_weigths = save_weigths
+
+    def forward(self, queries, keys, values, mask=None):         
+        projected_queries = self.linear_queries(queries) # Q * W_Q
+        projected_queries = projected_queries.view(projected_queries.shape[0], projected_queries.shape[1], self.number_of_heads, self.key_dimension).transpose(1, 2)
+
+        projected_keys = self.linear_keys(keys) # K * W_K
+        projected_keys = projected_keys.view(projected_keys.shape[0], projected_keys.shape[1], self.number_of_heads, self.key_dimension).transpose(1, 2)
+
+        projected_values = self.linear_values(values) # V * W_V
+        projected_values = projected_values.view(projected_values.shape[0], projected_values.shape[1], self.number_of_heads, self.value_dimension).transpose(1, 2)
+    
+        scaled_dot_product = ScaledDotProductAttention(self.key_dimension, self.value_dimension)
+        attention, attention_weigths = scaled_dot_product(projected_queries, projected_keys, projected_values, mask)
+        attention = attention.transpose(1, 2).contiguous()
+        attention = attention.view(attention.shape[0], -1, self.model_dimension)
+
+        if self.save_weigths :
+            self.attention_weigths = attention_weigths.detach()
+
+        return self.linear_output(attention)
+
+
+class PositionwiseFeedForwardNetwork(nn.Module):
+    def __init__(self, model_dimension, inner_layer_dimension):
+        super().__init__()
+        self.modul_dimension = model_dimension
+        self.inner_layer_dimension = inner_layer_dimension
+        self.linear1 = nn.Linear(model_dimension, inner_layer_dimension) # W1 and b1
+        self.linear2 = nn.Linear(inner_layer_dimension, model_dimension) # W2 and b2
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        output_ids = self.linear1(x)
+        output_ids = self.relu(output_ids)
+        return self.linear2(output_ids)
+
+
 class EncoderLayer(nn.Module):
     def __init__(self, model_dimension, multihead_attention, feedforward_network):
         super().__init__()
@@ -112,6 +122,7 @@ class EncoderLayer(nn.Module):
         sublayer_output2 = self.layernorm2(sublayer_output1 + ffnetwork_output)
         return sublayer_output2
     
+
 class Encoder(nn.Module):
     def __init__(self, model_dimension, number_of_layers, encoder_layer):
         super().__init__()
@@ -137,7 +148,7 @@ class DecoderLayer(nn.Module):
         self.layernorm2 = nn.LayerNorm(model_dimension)
         self.layernorm3 = nn.LayerNorm(model_dimension)
 
-    def forward(self, input_encode, output_embedded, mask):
+    def forward(self, input_encode, output_embedded, mask=None):
         masked_attention_output = self.masked_multihead_attention(queries=output_embedded, keys=output_embedded, values=output_embedded, mask=mask)
         sublayer_output1 = self.layernorm1(output_embedded + masked_attention_output)
         attention_ouput = self.multihead_attention(queries=sublayer_output1, keys=input_encode, values=input_encode)
@@ -187,7 +198,7 @@ class Transformer(nn.Module):
 
         self.linear_projection = nn.Linear(model_dimension, output_vocabulary_size)
 
-    def forward(self, input_ids, output_ids, mask):
+    def forward(self, input_ids, output_ids, mask=None):
         input_embedded = self.input_embedding(input_ids)
         input_pos_encoded = self.input_pos_encoding(input_embedded)
         input_encoded = self.encoder(input_pos_encoded)
@@ -195,18 +206,8 @@ class Transformer(nn.Module):
         output_embedded = self.output_embedding(output_ids)
         output_pos_encoded = self.output_pos_encoding(output_embedded)
         output_decoded = self.decoder(input_encoded, output_pos_encoded, mask)
-
+        
         output_decoded = self.linear_projection(output_decoded)
         output_decoded = output_decoded.softmax(dim=-1)
 
         return output_decoded
-
-
-def create_causal_mask(seq_len):
-    """
-    Crée un masque causal (triangulaire inférieur) pour l'auto-attention masquée
-    Empêche de voir les tokens futurs
-    Retourne: (seq_len, seq_len) - 1 pour positions autorisées, 0 pour interdites
-    """
-    mask = torch.tril(torch.ones(seq_len, seq_len))
-    return mask
