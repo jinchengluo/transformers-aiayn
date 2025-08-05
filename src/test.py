@@ -98,17 +98,17 @@ def test_positional_encoding():
     
     batch_size, seq_len = 2, 10
     x_embedded = torch.randn(batch_size, seq_len, model_dim)
-    
+
     output = pos_enc(x_embedded)
     
     assert output.shape == x_embedded.shape, f"Expected same shape as input {x_embedded.shape}, got {output.shape}"
     
-    pos_encoding_slice = pos_enc.positional_encoding[:seq_len]
+    pos_encoding_slice = pos_enc.positional_encoding[:, :seq_len]
     expected_output = x_embedded + pos_encoding_slice
     assert torch.allclose(output, expected_output), "Positional encoding should be added to input"
     
     pe = pos_enc.positional_encoding
-    assert pe.shape == (max_seq_len, model_dim), "Positional encoding should have correct shape"
+    assert pe.shape == (1,max_seq_len, model_dim), f"Positional encoding should have correct shape"
     
     print("PositionalEncoding tests passed")
 
@@ -135,10 +135,7 @@ def test_encoder():
     print("Testing Encoder...")
     
     model_dim, num_heads, inner_dim, num_layers = 512, 8, 2048, 6
-    mha = MultiHeadAttention(model_dim, num_heads)
-    ffn = PositionwiseFeedForwardNetwork(model_dim, inner_dim)
-    encoder_layer = EncoderLayer(model_dim, mha, ffn)
-    encoder = Encoder(model_dim, num_layers, encoder_layer)
+    encoder = Encoder(model_dim, num_layers, num_heads, inner_dim)
     
     batch_size, seq_len = 2, 10
     x = torch.randn(batch_size, seq_len, model_dim)
@@ -177,11 +174,7 @@ def test_decoder():
     print("Testing Decoder...")
     
     model_dim, num_heads, inner_dim, num_layers = 512, 8, 2048, 6
-    masked_mha = MultiHeadAttention(model_dim, num_heads)
-    mha = MultiHeadAttention(model_dim, num_heads)
-    ffn = PositionwiseFeedForwardNetwork(model_dim, inner_dim)
-    decoder_layer = DecoderLayer(model_dim, masked_mha, mha, ffn)
-    decoder = Decoder(model_dim, num_layers, decoder_layer)
+    decoder = Decoder(model_dim, num_layers, num_heads, inner_dim)
     
     batch_size, seq_len = 2, 10
     encoder_output = torch.randn(batch_size, seq_len, model_dim)

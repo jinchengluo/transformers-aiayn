@@ -16,8 +16,8 @@ class Embedding(nn.Module):
         self.model_dimension = model_dimension
         self.embedding = nn.Embedding(vocabulary_size, model_dimension)
     
-    def forward(self, x):
-        return self.embedding(x) * math.sqrt(self.model_dimension)
+    def forward(self, src_token_ids):
+        return self.embedding(src_token_ids) * math.sqrt(self.model_dimension)
     
 
 class PositionalEncoding(nn.Module):
@@ -35,10 +35,11 @@ class PositionalEncoding(nn.Module):
         positional_encoding[:,0::2] = torch.sin(positions * denominator)
         positional_encoding[:,1::2] = torch.cos(positions * denominator)
 
+        positional_encoding = positional_encoding.unsqueeze(0)
         self.register_buffer("positional_encoding", positional_encoding)       
 
-    def forward(self, x_embedded):
-        return x_embedded + self.positional_encoding[:x_embedded.shape[1]]
+    def forward(self, src_embedded):
+        return src_embedded + self.positional_encoding[:, :src_embedded.shape[1]]
 
 
 class ScaledDotProductAttention(nn.Module):
@@ -87,9 +88,10 @@ class MultiHeadAttention(nn.Module):
         projected_values = projected_values.view(projected_values.shape[0], projected_values.shape[1], self.number_of_heads, self.value_dimension).transpose(1, 2)
     
         scaled_dot_product = ScaledDotProductAttention(self.key_dimension, self.value_dimension)
+        
         attention, attention_weigths = scaled_dot_product(projected_queries, projected_keys, projected_values, mask)
         attention = attention.transpose(1, 2).contiguous()
-        attention = attention.view(attention.shape[0], -1, self.model_dimension)
+        attention = attention.view(queries.shape[0], -1, self.number_of_heads * self.key_dimension)
 
         if self.save_weigths :
             self.attention_weigths = attention_weigths.detach()
@@ -108,9 +110,9 @@ class PositionwiseFeedForwardNetwork(nn.Module):
         self.relu = nn.ReLU()
 
     def forward(self, x):
-        output_ids = self.linear1(x)
-        output_ids = self.relu(output_ids)
-        return self.linear2(output_ids)
+        x = self.linear1(x)
+        x = self.relu(x)
+        return self.linear2(x)
 
 
 class EncoderLayer(nn.Module):
@@ -123,9 +125,9 @@ class EncoderLayer(nn.Module):
         self.layernorm1 = nn.LayerNorm(model_dimension)
         self.layernorm2 = nn.LayerNorm(model_dimension)
 
-    def forward(self, input_embedded):
-        attention_ouput = self.multihead_attention(input_embedded, input_embedded, input_embedded)
-        sublayer_output1 = self.layernorm1(input_embedded + attention_ouput)
+    def forward(self, src_embedded):
+        attention_ouput = self.multihead_attention(src_embedded, src_embedded, src_embedded)
+        sublayer_output1 = self.layernorm1(src_embedded + attention_ouput)
 
         ffnetwork_output = self.feedforward_network(sublayer_output1)
         sublayer_output2 = self.layernorm2(sublayer_output1 + ffnetwork_output)
@@ -148,13 +150,13 @@ class Encoder(nn.Module):
             for _ in range(number_of_layers)
         ])
 
-    def forward(self, input_embedded):
-        input_encode = input_embedded
+    def forward(self, src_embedded):
+        src_encoder_output = src_embedded
 
         for layer in self.layers:
-            input_encode = layer(input_encode)
+            src_encoder_output = layer(src_encoder_output)
         
-        return input_encode
+        return src_encoder_output
     
 
 class DecoderLayer(nn.Module):
@@ -169,11 +171,11 @@ class DecoderLayer(nn.Module):
         self.layernorm2 = nn.LayerNorm(model_dimension)
         self.layernorm3 = nn.LayerNorm(model_dimension)
 
-    def forward(self, input_encode, output_embedded, mask=None):
-        masked_attention_output = self.masked_multihead_attention(queries=output_embedded, keys=output_embedded, values=output_embedded, mask=mask)
-        sublayer_output1 = self.layernorm1(output_embedded + masked_attention_output)
+    def forward(self, src_encoder_output, trg_embedded, mask=None):
+        masked_attention_output = self.masked_multihead_attention(queries=trg_embedded, keys=trg_embedded, values=trg_embedded, mask=mask)
+        sublayer_output1 = self.layernorm1(trg_embedded + masked_attention_output)
         
-        attention_ouput = self.multihead_attention(queries=sublayer_output1, keys=input_encode, values=input_encode)
+        attention_ouput = self.multihead_attention(queries=trg_embedded, keys=src_encoder_output, values=src_encoder_output)
         sublayer_output2 = self.layernorm2(sublayer_output1 + attention_ouput)
         
         ffnetwork_ouput = self.feedforward_network(sublayer_output2)
@@ -196,13 +198,13 @@ class Decoder(nn.Module):
             )
             for _ in range(number_of_layers)
         ])
-    def forward(self, input_encode, output_embedded, mask):
-        output_encode = output_embedded
+    def forward(self, src_encoder_output, trg_embedded, mask):
+        trg_decoder_output = trg_embedded
 
         for layer in self.layers:
-            output_encode = layer(input_encode, output_encode, mask)
+            trg_decoder_output = layer(src_encoder_output, trg_decoder_output, mask)
         
-        return output_encode
+        return trg_decoder_output
 
 
 class Transformer(nn.Module):
@@ -225,12 +227,12 @@ class Transformer(nn.Module):
 
         self.linear_projection = nn.Linear(model_dimension, output_vocabulary_size)
 
-    def forward(self, input_ids, output_ids, mask=None):
-        input_embedded = self.input_embedding(input_ids)
+    def forward(self, src_token_ids, trg_token_ids, mask=None):
+        input_embedded = self.input_embedding(src_token_ids)
         input_pos_encoded = self.input_pos_encoding(input_embedded)
         input_encoded = self.encoder(input_pos_encoded)
 
-        output_embedded = self.output_embedding(output_ids)
+        output_embedded = self.output_embedding(trg_token_ids)
         output_pos_encoded = self.output_pos_encoding(output_embedded)
         output_decoded = self.decoder(input_encoded, output_pos_encoded, mask)
         
