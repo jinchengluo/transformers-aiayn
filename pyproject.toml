@@ -5,9 +5,16 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "datasets>=4.0.0",
     "lightning>=2.5.2",
     "matplotlib>=3.10.3",
     "numpy>=2.3.2",
+    "sacrebleu>=2.5.1",
+    "spacy>=3.8.7",
+    "tensorboard>=2.20.0",
+    "tokenizers>=0.21.4",
     "torch>=2.7.1",
     "torchtext>=0.18.0",
+    "tqdm>=4.67.1",
+    "transformers>=4.55.0",
 ]
