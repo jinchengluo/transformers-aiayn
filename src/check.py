@@ -16,7 +16,7 @@ def create_causal_mask(sequence_length):
 def main():
 
     # Test parameters
-    batch_size = 1
+    batch_size = 2
     src_seq_len = 4
     tgt_seq_len = 4
     d_model = 8

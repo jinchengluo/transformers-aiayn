@@ -4,10 +4,14 @@ import torch
 import torch.nn as nn
 
 
-def create_causal_mask(sequence_length):
-    """Create causal (look-ahead) mask for decoder self-attention"""
-    mask = torch.triu(torch.ones(1, sequence_length, sequence_length), diagonal=1)
-    return mask == 0
+# def create_padding_mask(seq, pad_idx):
+#     return (seq != pad_idx).unsqueeze(0).unsqueeze(0).int()
+
+# def create_causal_mask(sequence_length):
+#     """Create causal (look-ahead) mask for decoder self-attention"""
+#     mask = torch.triu(torch.ones(1, sequence_length, sequence_length), diagonal=1)
+#     return mask == 0
+
 
 class Embedding(nn.Module):
     def __init__(self, vocabulary_size, model_dimension):
@@ -53,7 +57,7 @@ class ScaledDotProductAttention(nn.Module):
         dot_product /= math.sqrt(self.key_dimension)
         
         if mask is not None:
-            dot_product.masked_fill_(mask == 0, float("-inf"))
+            dot_product.masked_fill_(mask == torch.Tensor(False), float("-inf"))
         
         weights = dot_product.softmax(dim=-1)
         
@@ -88,7 +92,7 @@ class MultiHeadAttention(nn.Module):
         projected_values = projected_values.view(projected_values.shape[0], projected_values.shape[1], self.number_of_heads, self.value_dimension).transpose(1, 2)
     
         scaled_dot_product = ScaledDotProductAttention(self.key_dimension, self.value_dimension)
-        
+
         attention, attention_weigths = scaled_dot_product(projected_queries, projected_keys, projected_values, mask)
         attention = attention.transpose(1, 2).contiguous()
         attention = attention.view(queries.shape[0], -1, self.number_of_heads * self.key_dimension)
@@ -122,11 +126,12 @@ class EncoderLayer(nn.Module):
         
         self.multihead_attention = multihead_attention
         self.feedforward_network = feedforward_network
+
         self.layernorm1 = nn.LayerNorm(model_dimension)
         self.layernorm2 = nn.LayerNorm(model_dimension)
 
-    def forward(self, src_embedded):
-        attention_ouput = self.multihead_attention(src_embedded, src_embedded, src_embedded)
+    def forward(self, src_embedded, src_mask=None):
+        attention_ouput = self.multihead_attention(src_embedded, src_embedded, src_embedded, src_mask)
         sublayer_output1 = self.layernorm1(src_embedded + attention_ouput)
 
         ffnetwork_output = self.feedforward_network(sublayer_output1)
@@ -150,11 +155,11 @@ class Encoder(nn.Module):
             for _ in range(number_of_layers)
         ])
 
-    def forward(self, src_embedded):
+    def forward(self, src_embedded, src_mask=None):
         src_encoder_output = src_embedded
 
         for layer in self.layers:
-            src_encoder_output = layer(src_encoder_output)
+            src_encoder_output = layer(src_encoder_output, src_mask)
         
         return src_encoder_output
     
@@ -167,15 +172,16 @@ class DecoderLayer(nn.Module):
         self.masked_multihead_attention = masked_multihead_attention
         self.multihead_attention = multihead_attention
         self.feedforward_network = feedforward_network
+
         self.layernorm1 = nn.LayerNorm(model_dimension)
         self.layernorm2 = nn.LayerNorm(model_dimension)
         self.layernorm3 = nn.LayerNorm(model_dimension)
 
-    def forward(self, src_encoder_output, trg_embedded, mask=None):
-        masked_attention_output = self.masked_multihead_attention(queries=trg_embedded, keys=trg_embedded, values=trg_embedded, mask=mask)
+    def forward(self, src_encoder_output, trg_embedded, src_mask=None, trg_mask=None):
+        masked_attention_output = self.masked_multihead_attention(queries=trg_embedded, keys=trg_embedded, values=trg_embedded, mask=trg_mask)
         sublayer_output1 = self.layernorm1(trg_embedded + masked_attention_output)
         
-        attention_ouput = self.multihead_attention(queries=trg_embedded, keys=src_encoder_output, values=src_encoder_output)
+        attention_ouput = self.multihead_attention(queries=sublayer_output1, keys=src_encoder_output, values=src_encoder_output, mask=src_mask)
         sublayer_output2 = self.layernorm2(sublayer_output1 + attention_ouput)
         
         ffnetwork_ouput = self.feedforward_network(sublayer_output2)
@@ -189,6 +195,7 @@ class Decoder(nn.Module):
         super().__init__()
         self.model_dimension = model_dimension
         self.number_of_layers = number_of_layers
+
         self.layers = nn.ModuleList([
             DecoderLayer(
                 model_dimension,
@@ -198,26 +205,27 @@ class Decoder(nn.Module):
             )
             for _ in range(number_of_layers)
         ])
-    def forward(self, src_encoder_output, trg_embedded, mask):
+    
+    def forward(self, src_encoder_output, trg_embedded, src_mask=None, trg_mask=None):
         trg_decoder_output = trg_embedded
 
         for layer in self.layers:
-            trg_decoder_output = layer(src_encoder_output, trg_decoder_output, mask)
+            trg_decoder_output = layer(src_encoder_output, trg_decoder_output, src_mask=src_mask, trg_mask=trg_mask)
         
         return trg_decoder_output
 
 
 class Transformer(nn.Module):
-    def __init__(self, model_dimension, inner_layer_dimension, number_of_layers, number_of_heads, input_vocabulary_size, output_vocabulary_size):
+    def __init__(self, model_dimension, inner_layer_dimension, number_of_layers, number_of_heads, src_vocabulary_size, trg_vocabulary_size):
         super().__init__()
         self.model_dimension = model_dimension
         self.number_of_layers = number_of_layers
         self.number_of_heads = number_of_heads
-        self.input_vocabulary_size = input_vocabulary_size
-        self.output_vocabulary_size = output_vocabulary_size
+        self.src_vocabulary_size = src_vocabulary_size
+        self.trg_vocabulary_size = trg_vocabulary_size
 
-        self.input_embedding = Embedding(input_vocabulary_size, model_dimension)
-        self.output_embedding = Embedding(output_vocabulary_size, model_dimension)
+        self.input_embedding = Embedding(src_vocabulary_size, model_dimension)
+        self.output_embedding = Embedding(trg_vocabulary_size, model_dimension)
 
         self.input_pos_encoding = PositionalEncoding(model_dimension)
         self.output_pos_encoding = PositionalEncoding(model_dimension)
@@ -225,18 +233,58 @@ class Transformer(nn.Module):
         self.encoder = Encoder(model_dimension, number_of_layers, number_of_heads, inner_layer_dimension)
         self.decoder = Decoder(model_dimension, number_of_layers, number_of_heads, inner_layer_dimension)
 
-        self.linear_projection = nn.Linear(model_dimension, output_vocabulary_size)
+        self.linear_projection = nn.Linear(model_dimension, trg_vocabulary_size)
 
-    def forward(self, src_token_ids, trg_token_ids, mask=None):
+    def forward(self, src_token_ids, trg_token_ids, src_mask=None, trg_mask=None):
         input_embedded = self.input_embedding(src_token_ids)
         input_pos_encoded = self.input_pos_encoding(input_embedded)
-        input_encoded = self.encoder(input_pos_encoded)
+        input_encoded = self.encoder(input_pos_encoded, src_mask)
 
         output_embedded = self.output_embedding(trg_token_ids)
         output_pos_encoded = self.output_pos_encoding(output_embedded)
-        output_decoded = self.decoder(input_encoded, output_pos_encoded, mask)
+        output_decoded = self.decoder(input_encoded, output_pos_encoded, src_mask, trg_mask)
         
         output_decoded = self.linear_projection(output_decoded)
-        output_decoded = output_decoded.softmax(dim=-1)
+        # output_decoded = output_decoded.softmax(dim=-1)
 
         return output_decoded
+    
+
+### Test functions
+
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+
+def analyze_state_dict_shapes_and_names(model):
+    print(model.state_dict().keys())
+
+    for name, param in model.named_parameters():
+        print(name, param.shape)
+        if not param.requires_grad:
+            raise Exception('Expected all of the params to be trainable - no param freezing used.')
+        
+
+if __name__ == "__main__":
+    torch.manual_seed(42)
+    # Dummy data
+    src_vocab_size = 11
+    trg_vocab_size = 11
+    src_token_ids_batch = torch.randint(1, 10, size=(3, 2))
+    trg_token_ids_batch = torch.randint(1, 10, size=(3, 2))
+
+    transformer = Transformer(
+        model_dimension=512,
+        src_vocabulary_size=src_vocab_size,
+        trg_vocabulary_size=trg_vocab_size,
+        number_of_heads=8,
+        number_of_layers=6,
+        inner_layer_dimension=2048
+    )
+
+    analyze_state_dict_shapes_and_names(transformer)
+    print(f'Size of the baseline transformer = {count_parameters(transformer)}')
+
+    out = transformer(src_token_ids_batch, trg_token_ids_batch, src_mask=None, trg_mask=None)
+
+    print(out)

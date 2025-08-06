@@ -163,7 +163,7 @@ def test_decoder_layer():
     
     mask = torch.tril(torch.ones(seq_len, seq_len)).unsqueeze(0).unsqueeze(0)
     
-    output = decoder_layer(encoder_output, decoder_input, mask)
+    output = decoder_layer(encoder_output, decoder_input, None, mask)
     
     assert output.shape == decoder_input.shape, f"Expected same shape as decoder input {decoder_input.shape}, got {output.shape}"
     
@@ -182,7 +182,7 @@ def test_decoder():
     
     mask = torch.tril(torch.ones(seq_len, seq_len)).unsqueeze(0).unsqueeze(0)
     
-    output = decoder(encoder_output, decoder_input, mask)
+    output = decoder(encoder_output, decoder_input, None, mask)
     
     assert output.shape == decoder_input.shape, f"Expected same shape as decoder input {decoder_input.shape}, got {output.shape}"
     assert len(decoder.layers) == num_layers, f"Expected {num_layers} layers, got {len(decoder.layers)}"
@@ -245,7 +245,7 @@ def test_transformer():
     causal_mask = create_causal_mask(tgt_seq_len)
     
     # Test du forward pass
-    logits = transformer(input_ids, output_ids, causal_mask)
+    logits = transformer(input_ids, output_ids, None, causal_mask)
     
     # Vérifications des dimensions
     expected_shape = (batch_size, tgt_seq_len, output_vocab_size)
@@ -261,7 +261,7 @@ def test_transformer():
     output_ids2 = torch.randint(0, output_vocab_size, (batch_size, tgt_seq_len2))
     causal_mask2 = create_causal_mask(tgt_seq_len2)
     
-    logits2 = transformer(input_ids2, output_ids2, causal_mask2)
+    logits2 = transformer(input_ids2, output_ids2, None, causal_mask2)
     expected_shape2 = (batch_size, tgt_seq_len2, output_vocab_size)
     assert logits2.shape == expected_shape2, f"Expected output shape {expected_shape2}, got {logits2.shape}"
     
@@ -300,7 +300,7 @@ def test_transformer_components_integration():
     
     # Test avec masque
     mask = create_causal_mask(seq_len)
-    logits_with_mask = transformer(input_ids, output_ids, mask)
+    logits_with_mask = transformer(input_ids, output_ids, None, mask)
     assert logits_with_mask.shape == (batch_size, seq_len, output_vocab_size)
     
     # Les résultats avec et sans masque devraient être différents
