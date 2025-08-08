@@ -34,6 +34,7 @@ def greedy_decode(model, source, source_mask, src_tokenizer, trg_tokenizer, max_
     encoder_output = model.encode(source, source_mask)
     # Initialize the decoder input with the sos token
     decoder_input = torch.empty(1, 1).fill_(sos_idx).type_as(source).to(device)
+
     while True:
         if decoder_input.size(1) == max_len:
             break
@@ -45,7 +46,8 @@ def greedy_decode(model, source, source_mask, src_tokenizer, trg_tokenizer, max_
         out = model.decode(encoder_output, decoder_input, source_mask, decoder_mask)
 
         # get next token
-        prob = model.project(out[:, -1])
+        prob = model.linear_projection(out[:, -1])
+        prob = model.softmax(prob)
         _, next_word = torch.max(prob, dim=1)
         decoder_input = torch.cat(
             [decoder_input, torch.empty(1, 1).type_as(source).fill_(next_word.item()).to(device)], dim=1
@@ -139,6 +141,7 @@ def train_model():
         print(f"Device name: {torch.cuda.get_device_name(device.index)}")
         print(f"Device memory: {torch.cuda.get_device_properties(device.index).total_memory / 1024 ** 3} GB")
     device = torch.device(device)
+    torch.cuda.empty_cache()
 
     # Make sure the weights folder exists
     Path(f"{DATASET_NAME}_{MODEL_FOLDER}").mkdir(parents=True, exist_ok=True)

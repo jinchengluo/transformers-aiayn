@@ -36,8 +36,14 @@ class EnglishToFrenchDataset(Dataset):
         trg_text = src_target_pair['translation'][self.trg_language]
 
         # Transform the text into tokens
-        enc_input_tokens = self.src_tokenizer.encode(src_text).ids 
+        enc_input_tokens = self.src_tokenizer.encode(src_text).ids
         dec_input_tokens = self.trg_tokenizer.encode(trg_text).ids
+
+        max_token_length = self.sequence_length - 2
+        if len(enc_input_tokens) > max_token_length:
+            enc_input_tokens = enc_input_tokens[:max_token_length]
+        if len(dec_input_tokens) > max_token_length - 1:  # -1 car decoder a seulement SOS au début
+            dec_input_tokens = dec_input_tokens[:max_token_length - 1]
 
         # Add sos, eos and padding to each sentence
         enc_num_padding_tokens = self.sequence_length - len(enc_input_tokens) - 2  # We will add <s> and </s>
@@ -84,19 +90,22 @@ class EnglishToFrenchDataset(Dataset):
         assert decoder_input.size(0) == self.sequence_length
         assert label.size(0) == self.sequence_length
 
+        encoder_mask = (encoder_input != self.pad_token).unsqueeze(0).unsqueeze(0)
+        decoder_mask = (decoder_input != self.pad_token).unsqueeze(0) & causal_mask(decoder_input.size(0))
+
         return {
             "encoder_input": encoder_input,  # (sequence_length)
             "decoder_input": decoder_input,  # (sequence_length)
-            "encoder_mask": (encoder_input != self.pad_token).unsqueeze(0).unsqueeze(0).int(), # (1, 1, sequence_length)
-            "decoder_mask": (decoder_input != self.pad_token).unsqueeze(0).int() & causal_mask(decoder_input.size(0)), # (1, sequence_length) & (1, sequence_length, sequence_length),
+            "encoder_mask": encoder_mask, # (1, 1, sequence_length)
+            "decoder_mask": decoder_mask, # (1, sequence_length) & (1, sequence_length, sequence_length),
             "label": label,  # (sequence_length)
             "src_text": src_text,
             "trg_text": trg_text,
         }
-    
+
 def causal_mask(size):
-    mask = torch.triu(torch.ones((1, size, size)), diagonal=1).type(torch.int)
-    return mask == 0
+    mask = torch.triu(torch.ones((size, size)), diagonal=1).type(torch.int)
+    return (mask == 0).unsqueeze(0)
 
 
 def get_all_sentences(dataset, language):
@@ -123,6 +132,16 @@ def get_dataset():
 
     src_tokenizer = get_tokenizer(dataset, SOURCE_LANGUAGE)
     trg_tokenizer = get_tokenizer(dataset, TARGET_LANGUAGE)
+
+    max_length = SEQUENCE_LENGTH - 2
+
+    def is_valid_length(example):
+        src_tokens = src_tokenizer.encode(example['translation'][SOURCE_LANGUAGE]).ids
+        trg_tokens = trg_tokenizer.encode(example['translation'][TARGET_LANGUAGE]).ids
+        return len(src_tokens) <= max_length and len(trg_tokens) <= max_length
+
+    dataset = dataset.filter(is_valid_length)
+    print(f"Dataset filtred: {len(dataset)} examples left")
 
     train_size = int(0.8 * len(dataset))
     validation_size = len(dataset) - train_size
