@@ -1,16 +1,6 @@
-import copy
 import math
 import torch
 import torch.nn as nn
-
-
-# def create_padding_mask(seq, pad_idx):
-#     return (seq != pad_idx).unsqueeze(0).unsqueeze(0).int()
-
-# def create_causal_mask(sequence_length):
-#     """Create causal (look-ahead) mask for decoder self-attention"""
-#     mask = torch.triu(torch.ones(1, sequence_length, sequence_length), diagonal=1)
-#     return mask == 0
 
 
 class Embedding(nn.Module):
@@ -57,7 +47,7 @@ class ScaledDotProductAttention(nn.Module):
         dot_product /= math.sqrt(self.key_dimension)
         
         if mask is not None:
-            dot_product.masked_fill_(mask == torch.Tensor(False), float("-inf"))
+            dot_product.masked_fill_(mask == 0, float("-inf"))
         
         weights = dot_product.softmax(dim=-1)
         
@@ -234,6 +224,19 @@ class Transformer(nn.Module):
         self.decoder = Decoder(model_dimension, number_of_layers, number_of_heads, inner_layer_dimension)
 
         self.linear_projection = nn.Linear(model_dimension, trg_vocabulary_size)
+        self.softmax = nn.Softmax(dim=-1)
+
+    def encode(self, src_token_ids, src_mask=None):
+        input_embedded = self.input_embedding(src_token_ids)
+        input_pos_encoded = self.input_pos_encoding(input_embedded)
+        input_encoded = self.encoder(input_pos_encoded, src_mask)
+        return input_encoded
+    
+    def decode(self, input_encoded, trg_token_ids, src_mask, trg_mask=None):
+        output_embedded = self.output_embedding(trg_token_ids)
+        output_pos_encoded = self.output_pos_encoding(output_embedded)
+        output_decoded = self.decoder(input_encoded, output_pos_encoded, src_mask, trg_mask)
+        return output_decoded
 
     def forward(self, src_token_ids, trg_token_ids, src_mask=None, trg_mask=None):
         input_embedded = self.input_embedding(src_token_ids)
