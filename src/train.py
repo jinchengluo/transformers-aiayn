@@ -1,7 +1,6 @@
 from dataset import get_dataset, causal_mask
 from transformer import Transformer
-from config import *
-from constants import *
+from utils import *
 
 import torch
 import torch.nn as nn
