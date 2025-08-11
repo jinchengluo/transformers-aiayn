@@ -21,7 +21,8 @@ def get_transformer(src_vocab_size, trg_vocab_size):
                               number_of_layers=MODEL_NUMBER_OF_LAYERS,
                               number_of_heads=MODEL_NUMBER_OF_HEADS,
                               src_vocabulary_size=src_vocab_size,
-                              trg_vocabulary_size=trg_vocab_size
+                              trg_vocabulary_size=trg_vocab_size,
+                              dropout_probability=MODEL_DROPOUT_PROBABILITY
                             )
     return transformer
 
@@ -95,7 +96,7 @@ def run_validation(model, validation_ds, src_tokenizer, trg_tokenizer, max_len, 
             source_texts.append(source_text)
             expected.append(target_text)
             predicted.append(model_out_text)
-            
+
             # Print the source, target and model output
             print_msg('-'*console_width)
             print_msg(f"{f'SOURCE: ':>12}{source_text}")

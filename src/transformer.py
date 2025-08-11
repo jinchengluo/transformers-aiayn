@@ -15,10 +15,11 @@ class Embedding(nn.Module):
     
 
 class PositionalEncoding(nn.Module):
-    def __init__(self, model_dimension, max_sequence_length=5000):
+    def __init__(self, model_dimension, dropout_probability, max_sequence_length=5000):
         super().__init__()
         self.sequence_length = max_sequence_length
         self.model_dimension = model_dimension
+        self.dropout = nn.Dropout(dropout_probability)
         
         positional_encoding = torch.zeros(max_sequence_length, model_dimension)
 
@@ -33,7 +34,7 @@ class PositionalEncoding(nn.Module):
         self.register_buffer("positional_encoding", positional_encoding)       
 
     def forward(self, src_embedded):
-        return src_embedded + self.positional_encoding[:, :src_embedded.shape[1]]
+        return self.dropout(src_embedded + self.positional_encoding[:, :src_embedded.shape[1]])
 
 
 class ScaledDotProductAttention(nn.Module):
@@ -110,7 +111,7 @@ class PositionwiseFeedForwardNetwork(nn.Module):
 
 
 class EncoderLayer(nn.Module):
-    def __init__(self, model_dimension, multihead_attention, feedforward_network):
+    def __init__(self, model_dimension, multihead_attention, feedforward_network, dropout_probability):
         super().__init__()
         self.model_dimension = model_dimension
         
@@ -120,18 +121,20 @@ class EncoderLayer(nn.Module):
         self.layernorm1 = nn.LayerNorm(model_dimension)
         self.layernorm2 = nn.LayerNorm(model_dimension)
 
+        self.dropout = nn.Dropout(dropout_probability)
+
     def forward(self, src_embedded, src_mask=None):
         attention_ouput = self.multihead_attention(src_embedded, src_embedded, src_embedded, src_mask)
-        sublayer_output1 = self.layernorm1(src_embedded + attention_ouput)
+        sublayer_output1 = self.layernorm1(src_embedded + self.dropout(attention_ouput))
 
         ffnetwork_output = self.feedforward_network(sublayer_output1)
-        sublayer_output2 = self.layernorm2(sublayer_output1 + ffnetwork_output)
+        sublayer_output2 = self.layernorm2(sublayer_output1 + self.dropout(ffnetwork_output))
         
         return sublayer_output2
     
 
 class Encoder(nn.Module):
-    def __init__(self, model_dimension, number_of_layers, number_of_heads, inner_layer_dimension):
+    def __init__(self, model_dimension, number_of_layers, number_of_heads, inner_layer_dimension, dropout_probability):
         super().__init__()
         self.model_dimension = model_dimension
         self.number_of_layers = number_of_layers
@@ -140,7 +143,8 @@ class Encoder(nn.Module):
             EncoderLayer(
                 model_dimension,
                 MultiHeadAttention(model_dimension, number_of_heads),
-                PositionwiseFeedForwardNetwork(model_dimension, inner_layer_dimension)
+                PositionwiseFeedForwardNetwork(model_dimension, inner_layer_dimension),
+                dropout_probability
             )
             for _ in range(number_of_layers)
         ])
@@ -155,7 +159,7 @@ class Encoder(nn.Module):
     
 
 class DecoderLayer(nn.Module):
-    def __init__(self, model_dimension, masked_multihead_attention, multihead_attention, feedforward_network):
+    def __init__(self, model_dimension, masked_multihead_attention, multihead_attention, feedforward_network, dropout_probability):
         super().__init__()
         self.model_dimension = model_dimension
 
@@ -167,21 +171,23 @@ class DecoderLayer(nn.Module):
         self.layernorm2 = nn.LayerNorm(model_dimension)
         self.layernorm3 = nn.LayerNorm(model_dimension)
 
+        self.dropout = nn.Dropout(dropout_probability)
+
     def forward(self, src_encoder_output, trg_embedded, src_mask=None, trg_mask=None):
         masked_attention_output = self.masked_multihead_attention(queries=trg_embedded, keys=trg_embedded, values=trg_embedded, mask=trg_mask)
-        sublayer_output1 = self.layernorm1(trg_embedded + masked_attention_output)
+        sublayer_output1 = self.layernorm1(trg_embedded + self.dropout(masked_attention_output))
         
         attention_ouput = self.multihead_attention(queries=sublayer_output1, keys=src_encoder_output, values=src_encoder_output, mask=src_mask)
-        sublayer_output2 = self.layernorm2(sublayer_output1 + attention_ouput)
+        sublayer_output2 = self.layernorm2(sublayer_output1 + self.dropout(attention_ouput))
         
         ffnetwork_ouput = self.feedforward_network(sublayer_output2)
-        sublayer_output3 = self.layernorm3(sublayer_output2 + ffnetwork_ouput)
+        sublayer_output3 = self.layernorm3(sublayer_output2 + self.dropout(ffnetwork_ouput))
         
         return sublayer_output3
     
 
 class Decoder(nn.Module):
-    def __init__(self, model_dimension, number_of_layers, number_of_heads, inner_layer_dimension):
+    def __init__(self, model_dimension, number_of_layers, number_of_heads, inner_layer_dimension, dropout_probability):
         super().__init__()
         self.model_dimension = model_dimension
         self.number_of_layers = number_of_layers
@@ -191,7 +197,8 @@ class Decoder(nn.Module):
                 model_dimension,
                 MultiHeadAttention(model_dimension, number_of_heads),  # masked self-attention
                 MultiHeadAttention(model_dimension, number_of_heads),  # encoder-decoder attention
-                PositionwiseFeedForwardNetwork(model_dimension, inner_layer_dimension)
+                PositionwiseFeedForwardNetwork(model_dimension, inner_layer_dimension),
+                dropout_probability
             )
             for _ in range(number_of_layers)
         ])
@@ -206,7 +213,7 @@ class Decoder(nn.Module):
 
 
 class Transformer(nn.Module):
-    def __init__(self, model_dimension, inner_layer_dimension, number_of_layers, number_of_heads, src_vocabulary_size, trg_vocabulary_size):
+    def __init__(self, model_dimension, inner_layer_dimension, number_of_layers, number_of_heads, src_vocabulary_size, trg_vocabulary_size, dropout_probability):
         super().__init__()
         self.model_dimension = model_dimension
         self.number_of_layers = number_of_layers
@@ -217,11 +224,11 @@ class Transformer(nn.Module):
         self.input_embedding = Embedding(src_vocabulary_size, model_dimension)
         self.output_embedding = Embedding(trg_vocabulary_size, model_dimension)
 
-        self.input_pos_encoding = PositionalEncoding(model_dimension)
-        self.output_pos_encoding = PositionalEncoding(model_dimension)
+        self.input_pos_encoding = PositionalEncoding(model_dimension, dropout_probability)
+        self.output_pos_encoding = PositionalEncoding(model_dimension, dropout_probability)
 
-        self.encoder = Encoder(model_dimension, number_of_layers, number_of_heads, inner_layer_dimension)
-        self.decoder = Decoder(model_dimension, number_of_layers, number_of_heads, inner_layer_dimension)
+        self.encoder = Encoder(model_dimension, number_of_layers, number_of_heads, inner_layer_dimension, dropout_probability)
+        self.decoder = Decoder(model_dimension, number_of_layers, number_of_heads, inner_layer_dimension, dropout_probability)
 
         self.linear_projection = nn.Linear(model_dimension, trg_vocabulary_size)
         self.softmax = nn.Softmax(dim=-1)
