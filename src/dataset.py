@@ -129,6 +129,7 @@ def get_tokenizer(dataset, language):
 
 def get_dataset():
     dataset = load_dataset(DATASET_NAME, SOURCE_LANGUAGE + "-" + TARGET_LANGUAGE, split="train")
+    dataset = dataset.shuffle().select(range(int(len(dataset)/4)))    
 
     src_tokenizer = get_tokenizer(dataset, SOURCE_LANGUAGE)
     trg_tokenizer = get_tokenizer(dataset, TARGET_LANGUAGE)

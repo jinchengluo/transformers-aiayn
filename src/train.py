@@ -148,12 +148,12 @@ def train_model():
 
     train_dataloader, val_dataloader, src_tokenizer, trg_tokenizer = get_dataset()
     model = get_transformer(src_tokenizer.get_vocab_size(), trg_tokenizer.get_vocab_size()).to(device)
-    
+
     # Tensorboard
     writer = SummaryWriter(EXPERIMENT_FOLDER)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4, betas=(BETA1, BETA2), eps=EPSILON)    
-    lr_scheduler = LambdaLR(optimizer=optimizer, lr_lambda=lambda step: learning_rate(step))
+    optimizer = torch.optim.Adam(model.parameters(), lr=3e-4, betas=(BETA1, BETA2), eps=EPSILON)
+    #lr_scheduler = LambdaLR(optimizer=optimizer, lr_lambda=lambda step: learning_rate(step))
 
     # If the user specified a model to preload before training, load it
     initial_epoch = 1
@@ -170,7 +170,7 @@ def train_model():
     else:
         print('No model to preload, starting from scratch')
 
-    loss_function = nn.CrossEntropyLoss(ignore_index=src_tokenizer.token_to_id('[PAD]'), label_smoothing=0.1).to(device)
+    loss_function = nn.CrossEntropyLoss(ignore_index=trg_tokenizer.token_to_id('[PAD]'), label_smoothing=MODEL_LABEL_SMOOTHING_VALUE).to(device)
 
     for epoch in range(initial_epoch, NUMBER_OF_EPOCHS + 1):
         torch.cuda.empty_cache()
@@ -199,11 +199,14 @@ def train_model():
 
             # Backpropagate the loss
             loss.backward()
+            
+            # Gradient clipping
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
             # Update the weights
             optimizer.step()
             optimizer.zero_grad(set_to_none=True)
-            lr_scheduler.step()
+            #lr_scheduler.step()
 
             global_step += 1
 

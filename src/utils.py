@@ -2,21 +2,21 @@ import os
 from pathlib import Path
 
 # Transformer model parameters
-MODEL_NUMBER_OF_LAYERS = 3
-MODEL_DIMENSION = 256
-MODEL_NUMBER_OF_HEADS = 4
-MODEL_INNER_LAYER_DIMENSION = 1024
-MODEL_DROPOUT_PROBABILITY = 0.1
-MODEL_LABEL_SMOOTHING_VALUE = 0.1
-SEQUENCE_LENGTH = 258
+MODEL_NUMBER_OF_LAYERS = 3              # paper value : 6
+MODEL_DIMENSION = 256                   # 512
+MODEL_NUMBER_OF_HEADS = 4               # 8
+MODEL_INNER_LAYER_DIMENSION = 1024      # 2048
+MODEL_DROPOUT_PROBABILITY = 0.1         # 0.1
+MODEL_LABEL_SMOOTHING_VALUE = 0.1       # 0.1
+SEQUENCE_LENGTH = 500
 
 # Training parameters
 BATCH_SIZE = 8
 NUMBER_OF_EPOCHS = 10
-BETA1 = 0.9
-BETA2 = 0.98
-EPSILON = 1e-9
-WARMUP_STEPS = 4000
+BETA1 = 0.9                             # 0.9
+BETA2 = 0.98                            # 0.98
+EPSILON = 1e-9                          # 1e-9
+WARMUP_STEPS = 4000                     # 4000
 
 # Dataset parameters
 DATASET_NAME = "Helsinki-NLP/opus_books"
