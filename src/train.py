@@ -127,6 +127,8 @@ def run_validation(model, validation_ds, src_tokenizer, trg_tokenizer, max_len, 
         writer.add_scalar('validation BLEU', bleu, global_step)
         writer.flush()
 
+        print(f"CER: {cer:.4f} | WER: {wer:.4f} | BLEU: {bleu:.4f}")
+        
 
 def learning_rate(step):
     if step == 0:
