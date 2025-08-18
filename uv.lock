@@ -1126,7 +1126,7 @@ wheels = [
 ]
 
 [[package]]
-name = "transformers-aiayn"
+name = "transformers-implementation"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
